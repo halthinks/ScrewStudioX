@@ -105,6 +105,44 @@ function resolve(c) {
   return sp;
 }
 
+
+// Validate public/native inputs before creating geometry. Custom/unlisted combinations
+// remain possible through the low-level resolve() API, but are not ISO-qualified.
+function validateConfig(input) {
+  const errors = [], warnings = [];
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    return { valid: false, standardCompliant: false, errors: ['Configuration must be an object.'], warnings, config: null };
+  }
+  const { head, drive } = input, stdId = findStd(head, drive);
+  if (!stdId) {
+    return { valid: false, standardCompliant: false, errors: ['Unsupported head/drive combination.'], warnings, config: null };
+  }
+  const d = Number(input.d), L = Number(input.L);
+  const std = STD[stdId];
+  if (!Number.isFinite(d) || !Object.prototype.hasOwnProperty.call(std.data, d)) {
+    errors.push(stdId + ' does not cover this diameter.');
+  }
+  if (!Number.isFinite(L) || L <= 0) errors.push('Length must be a finite positive number in millimetres.');
+  if (Number.isFinite(d) && Object.prototype.hasOwnProperty.call(std.data, d) &&
+      Number.isFinite(L) && L > 0 &&
+      !lengthsFor(stdId, d).some(x => Math.abs(x - L) < 1e-9)) {
+    errors.push('Length is not in the supported ISO 888 series for this diameter and standard.');
+  }
+  const pitch = input.pitch == null ? COARSE[d] : Number(input.pitch);
+  if (!Number.isFinite(pitch) || !([COARSE[d], ...(FINE[d] || [])].some(p => Math.abs(p - pitch) < 1e-9))) {
+    errors.push('Pitch is not a supported ISO 261 coarse/fine pitch for this diameter.');
+  } else if (Number.isFinite(d) && Math.abs(pitch - COARSE[d]) > 1e-9 &&
+             !(std.fineStd && d >= std.fineFrom)) {
+    warnings.push('This standard does not designate the selected fine pitch; this is a non-standard combination.');
+  }
+  if (input.helix != null && typeof input.helix !== 'boolean') errors.push('helix must be a boolean.');
+  return {
+    valid: errors.length === 0, standardCompliant: errors.length === 0 && warnings.length === 0,
+    errors, warnings, stdId,
+    config: { head, drive, d, L, pitch, helix: input.helix === true }
+  };
+}
+
 // ---------- 2D shape radial functions ----------
 function polyRadial(poly) { // star-shaped polygon about origin -> R(theta)
   return th => {
@@ -362,6 +400,23 @@ function checkManifold(mesh) {
   return { edges: e.size, nonManifold: bad, misoriented: flip };
 }
 
+
+function buildValidated(config, options = {}) {
+  const result = validateConfig(config);
+  if (!result.valid) throw new RangeError(result.errors.join(' '));
+  if (!result.standardCompliant && options.allowNonstandard !== true) {
+    throw new RangeError(result.warnings.join(' ') + ' Set allowNonstandard: true to opt in.');
+  }
+  const spec = resolve(result.config);
+  if (spec.error) throw new RangeError(spec.error);
+  const mesh = buildMesh(spec), topology = checkManifold(mesh);
+  if (!Number.isFinite(mesh.volume) || mesh.volume <= 0 ||
+      topology.nonManifold !== 0 || topology.misoriented !== 0) {
+    throw new Error('Generated geometry failed closed, oriented-manifold validation.');
+  }
+  return { spec, mesh, topology, warnings: result.warnings };
+}
+
 // ---------- exporters ----------
 function toSTL(mesh, name) {
   const I = mesh.idx, p = mesh.pos, n = I.length / 3, buf = new ArrayBuffer(84 + 50 * n), dv = new DataView(buf);
@@ -489,5 +544,7 @@ async function makeZip(files) { // [{name, data:Uint8Array}]
 }
 
 G.ScrewKit = { SIZES, COARSE, FINE, ISO888, STD, HEADS, DRIVES, TORX_A, findStd, drivesFor, lengthsFor, resolve,
-  driveModel, headProfile, headMeridian, threadProfile, polyRadial, hexPoly, buildMesh, checkManifold, toSTL, toSTEP, makeZip, crc32 };
+  validateConfig, buildValidated, driveModel, headProfile, headMeridian, threadProfile, polyRadial, hexPoly,
+  buildMesh, checkManifold, toSTL, toSTEP, makeZip, crc32 };
+if (typeof module !== 'undefined' && module.exports) module.exports = G.ScrewKit;
 })(typeof window !== 'undefined' ? window : globalThis);

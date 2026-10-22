@@ -1,0 +1,6 @@
+exports/
+*.step
+*.stl
+*.zip
+scene.json
+__pycache__/

@@ -1,0 +1,16 @@
+{
+  "name": "screwstudiox",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Offline ISO metric screw geometry kernel and standalone configurator",
+  "main": "src/kernel.js",
+  "bin": {
+    "screwstudiox": "bin/screwstudiox.js"
+  },
+  "scripts": {
+    "test": "node tests/native.test.js && node tests/browser.test.js && node tests/step-structure.test.js && node tests/manifold.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

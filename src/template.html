@@ -528,11 +528,28 @@ async function convert() {
 }
 let downloads = null;
 async function save(filename, data) {
-  if (!downloads) { $('dlMsg').textContent = 'Saving files works when this page is open on claude.ai.'; return false; }
-  try { await downloads.save({ filename, data }); return true; }
-  catch (e) { const m = { declined: 'Download cancelled.', rate_limited: 'A save prompt is already open.', too_large: 'File too large for this view.' }[e && e.code] || 'Saving is unavailable in this view.'; $('dlMsg').textContent = m; return false; }
+  if (downloads) {
+    try { await downloads.save({ filename, data }); return true; }
+    catch (e) {
+      if (e && e.code === 'declined') { $('dlMsg').textContent = 'Download cancelled.'; return false; }
+      // The browser's native download path remains available outside host previews.
+    }
+  }
+  try {
+    const mime = filename.endsWith('.zip') ? 'application/zip' : 'image/svg+xml';
+    const blob = data instanceof Blob ? data : new Blob([data], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url; link.download = filename; link.style.display = 'none';
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    return true;
+  } catch (e) {
+    $('dlMsg').textContent = 'Browser download failed: ' + (e && e.message || e);
+    return false;
+  }
 }
-$('dlZip').onclick = async () => { if (!cad) return; if (await save(cad.name, cad.zip)) $('dlMsg').textContent = `Saved ${cad.name}`; };
+$('dlZip').onclick = async () => { if (!cad) return; if (await save(cad.name, cad.zip)) $('dlMsg').textContent = `Download started: ${cad.name}`; };
 $('dlSvg').onclick = async () => { const s = K.resolve(state); const svg = drawSheet(s, { ...fileColors(), mass: s._mass || sp._mass }); await save(fileBase(s) + '_drawing.svg', svg); };
 $('convert').onclick = convert; $('convert2').onclick = convert;
 $('len').onchange = e => { state.L = +e.target.value; update(); };
